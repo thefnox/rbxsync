@@ -65,6 +65,16 @@ fn default_true() -> bool {
 
 pub const LOCKFILE_NAME: &str = "rbxsync.lock.toml";
 
+/// Derive the lockfile path for a config file, so each config gets its own lockfile:
+/// `rbxsync.toml` → `rbxsync.lock.toml`, `rbxsync.dev.toml` → `rbxsync.dev.lock.toml`.
+pub fn lockfile_path(config_path: &Path) -> std::path::PathBuf {
+    let stem = config_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("rbxsync");
+    config_path.with_file_name(format!("{stem}.lock.toml"))
+}
+
 impl Lockfile {
     pub fn load(path: &Path) -> Result<Self> {
         if !path.exists() {

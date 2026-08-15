@@ -13,6 +13,7 @@ fn make_config(
     products: BTreeMap<String, ProductConfig>,
 ) -> Config {
     Config {
+        extends_used: false,
         experience: Experience {
             universe_id: 1,
             creator: Creator {

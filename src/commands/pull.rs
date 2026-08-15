@@ -7,7 +7,7 @@ use colored::Colorize;
 use crate::api::RbxClient;
 use crate::cli::Cli;
 use crate::config::{BadgeConfig, Config, PassConfig, ProductConfig};
-use crate::lockfile::{BadgeLock, Lockfile, PassLock, ProductLock, LOCKFILE_NAME};
+use crate::lockfile::{lockfile_path, BadgeLock, Lockfile, PassLock, ProductLock};
 
 struct IconConflict {
     resource_type: &'static str,
@@ -33,7 +33,7 @@ struct ConfigChange {
 pub async fn run(cli: &Cli, dry_run: bool, accept_remote: bool, accept_local: bool) -> Result<()> {
     let mut config = Config::load(&cli.config)?;
     let config_dir = cli.config.parent().unwrap_or(Path::new("."));
-    let lockfile_path = config_dir.join(LOCKFILE_NAME);
+    let lockfile_path = lockfile_path(&cli.config);
 
     // Load existing lockfile (if any) for conflict detection
     let old_lockfile = Lockfile::load(&lockfile_path)?;
@@ -435,7 +435,15 @@ pub async fn run(cli: &Cli, dry_run: bool, accept_remote: bool, accept_local: bo
     };
 
     lockfile.save(&lockfile_path)?;
-    config.save(&cli.config)?;
+    if config.extends_used {
+        println!(
+            "{} Config uses `extends` — lockfile updated, config left untouched. \
+             Apply config changes to the base/variant files manually.",
+            "ℹ".blue()
+        );
+    } else {
+        config.save(&cli.config)?;
+    }
 
     println!(
         "{} Updated: {} passes, {} badges, {} products",

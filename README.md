@@ -157,6 +157,53 @@ description = "100 coins"
 icon = "icons/coins.png"
 ```
 
+### Extending a base config
+
+A config can extend another file with `extends`. The extending file's values are
+deep-merged on top of the base: tables merge key by key, scalars and arrays are
+replaced. This makes per-environment configs trivial — define your passes,
+badges, and products once, and point each environment at its own universe:
+
+```toml
+# rbxsync.base.toml — shared definitions (no universe)
+[products.Coins100]
+price = 99
+
+# rbxsync.dev.toml
+extends = "rbxsync.base.toml"
+
+[experience]
+universe_id = 111111111
+
+[experience.creator]
+type = "group"
+id = 123456
+
+# rbxsync.prod.toml
+extends = "rbxsync.base.toml"
+
+[experience]
+universe_id = 222222222
+
+[experience.creator]
+type = "group"
+id = 123456
+```
+
+```sh
+rbxsync sync --config rbxsync.dev.toml
+rbxsync sync --config rbxsync.prod.toml
+```
+
+The `extends` path is resolved relative to the file that declares it, and chains
+are allowed (`a.toml` → `b.toml` → `c.toml`; cycles are an error). Each config
+file gets its own lockfile named after it (`rbxsync.dev.toml` →
+`rbxsync.dev.lock.toml`), so environments never clobber each other's state.
+
+Commands that would rewrite the config (`pull`, `rename`) never write the merged
+result back to disk when `extends` is involved — they update the lockfile and ask
+you to edit the base or variant TOML yourself.
+
 <details>
 <summary><code>[experience]</code></summary>
 
@@ -282,6 +329,10 @@ rbxsync sync
 ```
 
 The `--api-key` flag takes precedence over the environment variable.
+
+If a `.env` file exists in the working directory (or any parent), it is loaded
+at startup, so `RBXSYNC_API_KEY=YOUR_API_KEY` in `.env` works too. Real
+environment variables take precedence over `.env` entries.
 
 ### Required API scopes
 
@@ -448,7 +499,9 @@ Resource names that aren't valid Luau identifiers are automatically escaped:
 
 ## Lockfile
 
-rbxsync generates a `rbxsync.lock.toml` that tracks remote state: asset IDs, icon hashes, and metadata. Commit this file to version control.
+rbxsync generates a lockfile that tracks remote state: asset IDs, icon hashes, and metadata. Commit this file to version control.
+
+The lockfile is named after the config file: `rbxsync.toml` → `rbxsync.lock.toml`, `rbxsync.dev.toml` → `rbxsync.dev.lock.toml`. Each config (e.g. one per environment) keeps its own independent lockfile.
 
 ## Icon Conflict Resolution
 

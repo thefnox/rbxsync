@@ -115,3 +115,18 @@ fn save_creates_valid_toml() {
     assert_eq!(parsed["version"].as_integer(), Some(1));
     assert_eq!(parsed["universe_id"].as_integer(), Some(42));
 }
+
+#[test]
+fn lockfile_path_derived_from_config_name() {
+    use rbxsync::lockfile::lockfile_path;
+    use std::path::Path;
+
+    assert_eq!(
+        lockfile_path(Path::new("rbxsync.toml")),
+        Path::new("rbxsync.lock.toml")
+    );
+    assert_eq!(
+        lockfile_path(Path::new("configs/rbxsync.dev.toml")),
+        Path::new("configs/rbxsync.dev.lock.toml")
+    );
+}

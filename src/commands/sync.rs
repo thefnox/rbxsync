@@ -18,7 +18,7 @@ pub async fn run(
 ) -> Result<()> {
     let config = Config::load(&cli.config)?;
     let config_dir = cli.config.parent().unwrap_or(Path::new("."));
-    let lockfile_path = config_dir.join(crate::lockfile::LOCKFILE_NAME);
+    let lockfile_path = crate::lockfile::lockfile_path(&cli.config);
     let mut lockfile = Lockfile::load(&lockfile_path)?;
     lockfile.universe_id = config.experience.universe_id;
     lockfile.version = 1;

@@ -4,14 +4,11 @@ use anyhow::{bail, Result};
 
 use crate::cli::{Cli, ResourceType};
 use crate::config::Config;
-use crate::lockfile::{Lockfile, LOCKFILE_NAME};
+use crate::lockfile::{lockfile_path, Lockfile};
 
 pub fn run(cli: &Cli, resource: ResourceType, old_key: &str, new_key: &str) -> Result<()> {
     let config_path = &cli.config;
-    let lockfile_path = config_path
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join(LOCKFILE_NAME);
+    let lockfile_path = lockfile_path(config_path);
 
     let mut config = Config::load(config_path)?;
     let mut lockfile = Lockfile::load(&lockfile_path)?;
@@ -21,6 +18,29 @@ pub fn run(cli: &Cli, resource: ResourceType, old_key: &str, new_key: &str) -> R
         ResourceType::Badges => "badge",
         ResourceType::Products => "product",
     };
+
+    if config.extends_used {
+        // The key may live in the base or the variant file — don't rewrite either.
+        // Rename the lockfile entry only and let the user edit the TOML.
+        match resource {
+            ResourceType::Passes => {
+                rename_entry(&mut lockfile.passes, old_key, new_key, type_label)?
+            }
+            ResourceType::Badges => {
+                rename_entry(&mut lockfile.badges, old_key, new_key, type_label)?
+            }
+            ResourceType::Products => {
+                rename_entry(&mut lockfile.products, old_key, new_key, type_label)?
+            }
+        }
+        lockfile.save(&lockfile_path)?;
+        println!(
+            "Renamed {type_label} '{old_key}' -> '{new_key}' in {} only.\n\
+             Config uses `extends` — update the key in the base/variant TOML manually.",
+            lockfile_path.display()
+        );
+        return Ok(());
+    }
 
     rename_in_maps(
         &resource,
