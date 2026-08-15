@@ -5,6 +5,9 @@ use rbxsync::commands;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env (if present) before clap parses, so `env = "RBXSYNC_API_KEY"` picks it up.
+    let _ = dotenvy::dotenv();
+
     let cli = Cli::parse();
 
     match &cli.command {

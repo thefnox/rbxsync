@@ -149,6 +149,7 @@ fn default_template_is_valid_toml() {
 #[test]
 fn skip_serializing_empty_maps() {
     let config = Config {
+        extends_used: false,
         experience: rbxsync::config::Experience {
             universe_id: 1,
             creator: rbxsync::config::Creator {
@@ -316,4 +317,123 @@ fn resolve_name_helper() {
 
     assert_eq!(resolve_name(Some("VIP Pass"), "vip"), "VIP Pass");
     assert_eq!(resolve_name(None, "vip"), "vip");
+}
+
+#[test]
+fn extends_overrides_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let base_path = dir.path().join("rbxsync.base.toml");
+    std::fs::write(
+        &base_path,
+        r#"
+[experience]
+universe_id = 111
+
+[experience.creator]
+type = "user"
+id = 1
+
+[products.Coins100]
+price = 99
+description = "100 coins"
+
+[products.Coins500]
+price = 399
+"#,
+    )
+    .unwrap();
+
+    let variant_path = dir.path().join("rbxsync.dev.toml");
+    std::fs::write(
+        &variant_path,
+        r#"
+extends = "rbxsync.base.toml"
+
+[experience]
+universe_id = 222
+
+[experience.creator]
+type = "group"
+id = 2
+
+[products.Coins100]
+price = 149
+"#,
+    )
+    .unwrap();
+
+    let config = Config::load(&variant_path).unwrap();
+    assert!(config.extends_used);
+    assert_eq!(config.experience.universe_id, 222);
+    assert_eq!(config.experience.creator.id, 2);
+    // Variant overrides one field; the rest of the entry merges from base.
+    assert_eq!(config.products["Coins100"].price, 149);
+    assert_eq!(
+        config.products["Coins100"].description.as_deref(),
+        Some("100 coins")
+    );
+    // Untouched base entries survive the merge.
+    assert_eq!(config.products["Coins500"].price, 399);
+
+    // Base alone still loads without the extends flag.
+    let base = Config::load(&base_path).unwrap();
+    assert!(!base.extends_used);
+    assert_eq!(base.experience.universe_id, 111);
+}
+
+#[test]
+fn extends_chain_and_cycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.toml");
+    let b = dir.path().join("b.toml");
+    let c = dir.path().join("c.toml");
+
+    std::fs::write(
+        &a,
+        r#"
+[experience]
+universe_id = 1
+
+[experience.creator]
+type = "user"
+id = 1
+"#,
+    )
+    .unwrap();
+    std::fs::write(&b, "extends = \"a.toml\"\n[experience]\nuniverse_id = 2\n").unwrap();
+    std::fs::write(&c, "extends = \"b.toml\"\n[experience]\nuniverse_id = 3\n").unwrap();
+
+    let config = Config::load(&c).unwrap();
+    assert!(config.extends_used);
+    assert_eq!(config.experience.universe_id, 3);
+    assert_eq!(config.experience.creator.id, 1);
+
+    // Cycle: a -> a
+    std::fs::write(&a, "extends = \"a.toml\"\n").unwrap();
+    let err = Config::load(&a).unwrap_err();
+    assert!(format!("{err:#}").contains("Circular"));
+}
+
+#[test]
+fn merged_config_refuses_to_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let base_path = dir.path().join("base.toml");
+    std::fs::write(
+        &base_path,
+        r#"
+[experience]
+universe_id = 1
+
+[experience.creator]
+type = "user"
+id = 1
+"#,
+    )
+    .unwrap();
+    let variant_path = dir.path().join("variant.toml");
+    std::fs::write(&variant_path, "extends = \"base.toml\"\n").unwrap();
+
+    let config = Config::load(&variant_path).unwrap();
+    let err = config.save(&variant_path).unwrap_err();
+    assert!(err.to_string().contains("extends"));
 }

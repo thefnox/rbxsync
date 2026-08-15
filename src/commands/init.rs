@@ -9,7 +9,7 @@ use crate::config::{
     BadgeConfig, CodegenConfig, Config, Creator, CreatorType, Experience, IconsConfig, PassConfig,
     ProductConfig,
 };
-use crate::lockfile::{BadgeLock, Lockfile, PassLock, ProductLock, LOCKFILE_NAME};
+use crate::lockfile::{lockfile_path, BadgeLock, Lockfile, PassLock, ProductLock};
 
 pub async fn run(cli: &Cli, from_remote: bool, universe_id: Option<u64>) -> Result<()> {
     let config_path = &cli.config;
@@ -214,6 +214,7 @@ pub async fn run(cli: &Cli, from_remote: bool, universe_id: Option<u64>) -> Resu
     }
 
     let config = Config {
+        extends_used: false,
         experience: Experience {
             universe_id,
             creator: Creator {
@@ -230,7 +231,7 @@ pub async fn run(cli: &Cli, from_remote: bool, universe_id: Option<u64>) -> Resu
 
     config.save(config_path)?;
 
-    let lockfile_path = config_dir.join(LOCKFILE_NAME);
+    let lockfile_path = lockfile_path(config_path);
     let lockfile = Lockfile {
         version: 1,
         universe_id,

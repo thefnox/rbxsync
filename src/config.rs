@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
+    /// True when this config was assembled from an `extends` chain. Merged configs
+    /// must not be written back to disk — they would inline the base file.
+    #[serde(skip)]
+    pub extends_used: bool,
+
     pub experience: Experience,
 
     #[serde(default, skip_serializing_if = "CodegenConfig::is_default")]
@@ -205,8 +210,69 @@ pub struct ProductConfig {
     pub path: Option<String>,
 }
 
+/// Merge `overlay` on top of `base`: tables merge recursively, everything else
+/// (scalars, arrays) is replaced by the overlay value.
+fn deep_merge(base: &mut toml::Value, overlay: toml::Value) {
+    match (base, overlay) {
+        (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
+            for (key, overlay_value) in overlay_table {
+                match base_table.get_mut(&key) {
+                    Some(base_value) if base_value.is_table() && overlay_value.is_table() => {
+                        deep_merge(base_value, overlay_value);
+                    }
+                    _ => {
+                        base_table.insert(key, overlay_value);
+                    }
+                }
+            }
+        }
+        (base_slot, overlay_value) => *base_slot = overlay_value,
+    }
+}
+
+/// Load a config file as a raw TOML value, resolving its `extends` chain.
+/// Returns the merged value and whether any `extends` was involved.
+fn load_merged_value(path: &Path, visited: &mut Vec<PathBuf>) -> Result<(toml::Value, bool)> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if visited.contains(&canonical) {
+        bail!("Circular `extends` chain involving {}", path.display());
+    }
+    visited.push(canonical);
+
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let mut value: toml::Value =
+        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))?;
+
+    let extends = value
+        .as_table_mut()
+        .and_then(|table| table.remove("extends"));
+
+    let Some(extends) = extends else {
+        return Ok((value, false));
+    };
+
+    let Some(relative_base) = extends.as_str() else {
+        bail!("`extends` must be a string path in {}", path.display());
+    };
+
+    let base_path = path.parent().unwrap_or(Path::new(".")).join(relative_base);
+    let (mut merged, _) = load_merged_value(&base_path, visited)
+        .with_context(|| format!("Failed to load base config extended by {}", path.display()))?;
+    deep_merge(&mut merged, value);
+
+    Ok((merged, true))
+}
+
 impl Config {
     pub fn save(&self, path: &Path) -> Result<()> {
+        if self.extends_used {
+            bail!(
+                "Refusing to write {}: this config was merged from an `extends` chain. \
+                 Edit the base or variant TOML files directly.",
+                path.display()
+            );
+        }
         let content = toml::to_string_pretty(self)?;
         std::fs::write(path, content)
             .with_context(|| format!("Failed to write {}", path.display()))?;
@@ -214,10 +280,12 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-        let config: Config = toml::from_str(&content)
+        let mut visited: Vec<PathBuf> = Vec::new();
+        let (value, extends_used) = load_merged_value(path, &mut visited)?;
+        let mut config: Config = value
+            .try_into()
             .with_context(|| format!("Failed to parse {}", path.display()))?;
+        config.extends_used = extends_used;
 
         let config_dir = path.parent().unwrap_or(Path::new("."));
         config.validate_icon_paths(config_dir)?;
@@ -267,6 +335,11 @@ impl Config {
 
     pub fn default_template() -> String {
         r#"# rbxsync configuration
+
+# Extend a base config — this file's values override the base. Useful for
+# per-environment configs (local/dev/prod) sharing one set of definitions.
+# Each config file gets its own lockfile (rbxsync.dev.toml -> rbxsync.dev.lock.toml).
+# extends = "rbxsync.base.toml"
 
 [experience]
 universe_id = 0        # Your Roblox universe ID

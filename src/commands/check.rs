@@ -14,7 +14,7 @@ pub async fn run(cli: &Cli) -> Result<()> {
     println!("{} Config is valid ({})", "✓".green(), cli.config.display());
 
     let config_dir = cli.config.parent().unwrap_or(Path::new("."));
-    let lockfile_path = config_dir.join(crate::lockfile::LOCKFILE_NAME);
+    let lockfile_path = crate::lockfile::lockfile_path(&cli.config);
 
     if !lockfile_path.exists() {
         println!(
